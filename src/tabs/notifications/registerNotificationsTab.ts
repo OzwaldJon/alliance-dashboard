@@ -92,16 +92,139 @@ export function registerNotificationsTabTs(): void {
         }
       }
 
-      function addCenterButton(row: HTMLElement, xy: { x: number; y: number } | null): void {
+      function getXYFromCityLike(obj: any): { x: number; y: number } | null {
+        try {
+          if (!obj) return null;
+          const getNum = (v: any): number | null => {
+            const n = Number(v);
+            return isFinite(n) ? n : null;
+          };
+
+          const tryProp = (o: any, k: string): number | null => {
+            try {
+              return getNum(o && o[k] !== undefined ? o[k] : null);
+            } catch {
+              return null;
+            }
+          };
+
+          const tryFn = (o: any, k: string): number | null => {
+            try {
+              if (o && typeof o[k] === 'function') return getNum(o[k]());
+            } catch {
+              return null;
+            }
+            return null;
+          };
+
+          const x =
+            tryFn(obj, 'get_PosX') ??
+            tryFn(obj, 'get_X') ??
+            tryFn(obj, 'get_x') ??
+            tryProp(obj, 'x') ??
+            tryProp(obj, 'X') ??
+            tryProp(obj, 'cx') ??
+            tryProp(obj, 'Cx');
+          const y =
+            tryFn(obj, 'get_PosY') ??
+            tryFn(obj, 'get_Y') ??
+            tryFn(obj, 'get_y') ??
+            tryProp(obj, 'y') ??
+            tryProp(obj, 'Y') ??
+            tryProp(obj, 'cy') ??
+            tryProp(obj, 'Cy');
+
+          if (x === null || y === null) return null;
+          return { x, y };
+        } catch {
+          return null;
+        }
+      }
+
+      function tryResolveBaseIdToXY(baseId: any): { x: number; y: number } | null {
+        try {
+          const id = Number(baseId);
+          if (!isFinite(id) || id <= 0) return null;
+
+          const api = getGameApi();
+          const md = api.mainData;
+          if (!md) return null;
+
+          const cities = (md.get_Cities && md.get_Cities()) || (md.get_City && md.get_City()) || null;
+
+          const tryGetCityFromCollection = (coll: any): any | null => {
+            if (!coll) return null;
+            try {
+              if (typeof coll.GetCity === 'function') return coll.GetCity(id);
+            } catch {
+              // ignore
+            }
+            try {
+              if (typeof coll.get_Item === 'function') return coll.get_Item(id);
+            } catch {
+              // ignore
+            }
+            try {
+              if (typeof coll.get === 'function') return coll.get(id);
+            } catch {
+              // ignore
+            }
+            try {
+              const v = coll[id];
+              if (v) return v;
+            } catch {
+              // ignore
+            }
+            return null;
+          };
+
+          let city: any = null;
+          city = tryGetCityFromCollection(cities);
+          if (!city) {
+            try {
+              if (typeof md.GetCity === 'function') city = md.GetCity(id);
+            } catch {
+              // ignore
+            }
+          }
+          if (!city) {
+            try {
+              if (typeof md.get_CityById === 'function') city = md.get_CityById(id);
+            } catch {
+              // ignore
+            }
+          }
+
+          const xy = getXYFromCityLike(city);
+          if (xy) return xy;
+        } catch {
+          // ignore
+        }
+        return null;
+      }
+
+      function addCenterButtonImpl(row: HTMLElement, xy: { x: number; y: number } | null, label: string | null): void {
         try {
           if (!xy) return;
-          if ((row as any).__cadHasCenterBtn) return;
-          (row as any).__cadHasCenterBtn = true;
+
+          const idx = (() => {
+            try {
+              const cur = Number((row as any).__cadCenterBtnCount || 0);
+              (row as any).__cadCenterBtnCount = cur + 1;
+              (row as any).__cadHasCenterBtn = true;
+              return cur;
+            } catch {
+              (row as any).__cadHasCenterBtn = true;
+              return 0;
+            }
+          })();
 
           const btn = makeEl('button', { type: 'button' }) as HTMLButtonElement;
-          btn.textContent = 'Center ' + String(xy.x) + ':' + String(xy.y);
+          btn.textContent = label ? label : 'Center ' + String(xy.x) + ':' + String(xy.y);
           btn.style.cssText =
-            'position:absolute;top:8px;right:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:rgba(233,238,247,.86);border-radius:999px;padding:4px 8px;font-size:11px;line-height:1;cursor:pointer;';
+            'position:absolute;top:' +
+            String(8 + idx * 26) +
+            'px;right:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:rgba(233,238,247,.86);border-radius:999px;padding:4px 8px;font-size:11px;line-height:1;cursor:pointer;';
           btn.addEventListener('click', (ev) => {
             try {
               ev.preventDefault();
@@ -116,6 +239,14 @@ export function registerNotificationsTabTs(): void {
             }
           });
           row.appendChild(btn);
+        } catch {
+          // ignore
+        }
+      }
+
+      function addCenterButton(row: HTMLElement, xy: { x: number; y: number } | null): void {
+        try {
+          addCenterButtonImpl(row, xy, null);
         } catch {
           // ignore
         }
@@ -142,11 +273,8 @@ export function registerNotificationsTabTs(): void {
 
           const btn = makeEl('button', { type: 'button' }) as HTMLButtonElement;
           btn.textContent = 'JSON';
-          const hasCenter = !!(row as any).__cadHasCenterBtn;
           btn.style.cssText =
-            'position:absolute;right:8px;top:' +
-            String(hasCenter ? 34 : 8) +
-            'px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:rgba(233,238,247,.86);border-radius:999px;padding:4px 8px;font-size:11px;line-height:1;cursor:pointer;';
+            'position:absolute;right:8px;bottom:8px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.06);color:rgba(233,238,247,.86);border-radius:999px;padding:4px 8px;font-size:11px;line-height:1;cursor:pointer;';
 
           btn.addEventListener('click', (ev) => {
             try {
@@ -548,6 +676,15 @@ export function registerNotificationsTabTs(): void {
           const coordsPacked = Array.isArray(ncct) && ncct.length ? ncct[0] : ncct;
           void reportId;
 
+          // Add Center button for attacker base (raids only)
+          try {
+            const baseId = Array.isArray(bin) && bin.length ? bin[0] : null;
+            const xy = tryResolveBaseIdToXY(baseId);
+            addCenterButtonImpl(row, xy, xy ? 'Attacker ' + String(xy.x) + ':' + String(xy.y) : null);
+          } catch {
+            // ignore
+          }
+
           const content = makeEl('div');
           (content as HTMLElement).style.cssText = 'display:flex;flex-direction:column;gap:6px;';
 
@@ -570,6 +707,210 @@ export function registerNotificationsTabTs(): void {
           addKV('Attacker base lvl', baseLvl);
           addKV('Target lvl', targetLvl);
           void coordsPacked;
+
+          content.appendChild(grid);
+          row.appendChild(content);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function renderAllianceMemberCard(row: HTMLElement, _n: any, params: Array<{ key: string; type: string; value: any }>): boolean {
+        try {
+          const mdb = _n && _n.mdb !== undefined ? Number(_n.mdb) : null;
+          const enumName = mdb !== null && isFinite(mdb) ? getEnumName(mdb) : null;
+          if (!enumName) return false;
+
+          if (enumName !== 'AllianceNewMember' && enumName !== 'AllianceMemberLeft' && enumName !== 'AllianceMemberKicked' && enumName !== 'AllianceMemberRoleChanged') {
+            return false;
+          }
+
+          const pnAll = getAllParamValues(params, 'pn').map((x) => String(x ?? '')).filter((s) => s.trim());
+          const pnaAll = (() => {
+            const out: string[] = [];
+            const rawList = getAllParamValues(params, 'pna');
+            for (let i = 0; i < rawList.length; i++) {
+              const v: any = rawList[i];
+              if (Array.isArray(v)) {
+                for (let j = 0; j < v.length; j++) {
+                  const s = String(v[j] ?? '').trim();
+                  if (s) out.push(s);
+                }
+                continue;
+              }
+              const s = String(v ?? '').trim();
+              if (s) out.push(s);
+            }
+            return out;
+          })();
+          const anAll = getAllParamValues(params, 'an').map((x) => String(x ?? '')).filter((s) => s.trim());
+          const allianceName = anAll.length ? anAll[0] : '-';
+          const roleName = (() => {
+            const rn = getParamValue(params, 'rn');
+            return rn !== null && rn !== undefined ? String(rn) : null;
+          })();
+
+          const content = makeEl('div');
+          (content as HTMLElement).style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+          const grid = makeEl('div');
+          (grid as HTMLElement).style.cssText = 'display:grid;grid-template-columns: 140px 1fr;gap:4px 10px;font-size:11px;';
+
+          const addKV = (k: string, v: string) => {
+            const kk = makeEl('div');
+            (kk as HTMLElement).style.cssText = 'color:rgba(233,238,247,.70);';
+            kk.textContent = k;
+            const vv = makeEl('div');
+            (vv as HTMLElement).style.cssText = 'color:rgba(233,238,247,.92);word-break:break-word;';
+            vv.textContent = v;
+            grid.appendChild(kk);
+            grid.appendChild(vv);
+          };
+
+          if (enumName === 'AllianceNewMember') {
+            addKV('Player', pnAll[0] ? pnAll[0] : '-');
+            addKV('Alliance', allianceName);
+          } else if (enumName === 'AllianceMemberLeft') {
+            addKV('Player', pnAll[0] ? pnAll[0] : '-');
+            addKV('Alliance', allianceName);
+          } else if (enumName === 'AllianceMemberKicked') {
+            addKV('Kicked', pnaAll.length ? pnaAll.join(', ') : '-');
+            addKV('By', pnAll[0] ? pnAll[0] : '-');
+            addKV('Alliance', allianceName);
+          } else if (enumName === 'AllianceMemberRoleChanged') {
+            addKV('Player', pnaAll.length ? pnaAll.join(', ') : pnAll[0] ? pnAll[0] : '-');
+            if (pnAll.length) addKV('By', pnAll[0]);
+            if (roleName) addKV('New role', roleName);
+          }
+
+          content.appendChild(grid);
+          row.appendChild(content);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function renderInvitationCard(row: HTMLElement, _n: any, params: Array<{ key: string; type: string; value: any }>): boolean {
+        try {
+          const mdb = _n && _n.mdb !== undefined ? Number(_n.mdb) : null;
+          const enumName = mdb !== null && isFinite(mdb) ? getEnumName(mdb) : null;
+          if (enumName !== 'PlayerInvited') return false;
+
+          const pnAll = getAllParamValues(params, 'pn').map((x) => String(x ?? '')).filter((s) => s.trim());
+          const an = getParamValue(params, 'an');
+          const allianceName = an !== null && an !== undefined ? String(an) : '-';
+
+          const inviter = pnAll.length ? pnAll[0] : '-';
+          const invited = pnAll.length >= 2 ? pnAll[pnAll.length - 1] : '-';
+
+          const content = makeEl('div');
+          (content as HTMLElement).style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+          const grid = makeEl('div');
+          (grid as HTMLElement).style.cssText = 'display:grid;grid-template-columns: 140px 1fr;gap:4px 10px;font-size:11px;';
+
+          const addKV = (k: string, v: string) => {
+            const kk = makeEl('div');
+            (kk as HTMLElement).style.cssText = 'color:rgba(233,238,247,.70);';
+            kk.textContent = k;
+            const vv = makeEl('div');
+            (vv as HTMLElement).style.cssText = 'color:rgba(233,238,247,.92);word-break:break-word;';
+            vv.textContent = v;
+            grid.appendChild(kk);
+            grid.appendChild(vv);
+          };
+
+          addKV('Alliance', allianceName);
+          addKV('Inviter', inviter);
+          addKV('Invited', invited);
+
+          content.appendChild(grid);
+          row.appendChild(content);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function renderRelationshipCard(row: HTMLElement, _n: any, params: Array<{ key: string; type: string; value: any }>): boolean {
+        try {
+          const mdb = _n && _n.mdb !== undefined ? Number(_n.mdb) : null;
+          const enumName = mdb !== null && isFinite(mdb) ? getEnumName(mdb) : null;
+          if (enumName !== 'AllianceRelationshipChanged' && enumName !== 'AllianceRelationshipRequest') return false;
+
+          const anAll = getAllParamValues(params, 'an').map((x) => String(x ?? '')).filter((s) => s.trim());
+          const pn = getParamValue(params, 'pn');
+          const art = getParamValue(params, 'art');
+
+          const a1 = anAll.length ? anAll[0] : '-';
+          const a2 = anAll.length >= 2 ? anAll[1] : '-';
+          const by = pn !== null && pn !== undefined ? String(pn) : '-';
+          const rel = art !== null && art !== undefined ? String(art) : '-';
+
+          const content = makeEl('div');
+          (content as HTMLElement).style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+          const grid = makeEl('div');
+          (grid as HTMLElement).style.cssText = 'display:grid;grid-template-columns: 140px 1fr;gap:4px 10px;font-size:11px;';
+
+          const addKV = (k: string, v: string) => {
+            const kk = makeEl('div');
+            (kk as HTMLElement).style.cssText = 'color:rgba(233,238,247,.70);';
+            kk.textContent = k;
+            const vv = makeEl('div');
+            (vv as HTMLElement).style.cssText = 'color:rgba(233,238,247,.92);word-break:break-word;';
+            vv.textContent = v;
+            grid.appendChild(kk);
+            grid.appendChild(vv);
+          };
+
+          addKV('Alliance A', a1);
+          addKV('Alliance B', a2);
+          addKV(enumName === 'AllianceRelationshipRequest' ? 'Requested by' : 'Changed by', by);
+          addKV('Relation type', rel);
+
+          content.appendChild(grid);
+          row.appendChild(content);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function renderEndgameCard(row: HTMLElement, _n: any, params: Array<{ key: string; type: string; value: any }>): boolean {
+        try {
+          const mdb = _n && _n.mdb !== undefined ? Number(_n.mdb) : null;
+          const enumName = mdb !== null && isFinite(mdb) ? getEnumName(mdb) : null;
+          if (!enumName || !/^Endgame/i.test(enumName)) return false;
+
+          const pn = getParamValue(params, 'pn');
+          const an = getParamValue(params, 'an');
+          const chi = getParamValue(params, 'chi');
+
+          const content = makeEl('div');
+          (content as HTMLElement).style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+          const grid = makeEl('div');
+          (grid as HTMLElement).style.cssText = 'display:grid;grid-template-columns: 140px 1fr;gap:4px 10px;font-size:11px;';
+
+          const addKV = (k: string, v: string) => {
+            const kk = makeEl('div');
+            (kk as HTMLElement).style.cssText = 'color:rgba(233,238,247,.70);';
+            kk.textContent = k;
+            const vv = makeEl('div');
+            (vv as HTMLElement).style.cssText = 'color:rgba(233,238,247,.92);word-break:break-word;';
+            vv.textContent = v;
+            grid.appendChild(kk);
+            grid.appendChild(vv);
+          };
+
+          const ally = an !== null && an !== undefined ? String(an) : null;
+          const player = pn !== null && pn !== undefined ? String(pn) : null;
+          const hubId = chi !== null && chi !== undefined ? String(chi) : null;
+
+          if (ally) addKV('Alliance', ally);
+          if (player) addKV('Player', player);
+          if (hubId) addKV('Hub', hubId);
+
+          if (!ally && !player && !hubId) return false;
 
           content.appendChild(grid);
           row.appendChild(content);
@@ -737,6 +1078,18 @@ export function registerNotificationsTabTs(): void {
           const allianceName = an !== null && an !== undefined ? String(an) : '-';
           const outcome = of !== null && of !== undefined ? String(of) : '-';
 
+          // Add Center buttons for attacker and defender bases
+          try {
+            const atkBaseId = Array.isArray(bins[aIdx]) && bins[aIdx].length ? bins[aIdx][0] : null;
+            const defBaseId2 = Array.isArray(bins[dIdx]) && bins[dIdx].length ? bins[dIdx][0] : null;
+            const atkXY = tryResolveBaseIdToXY(atkBaseId);
+            const defXY = tryResolveBaseIdToXY(defBaseId2);
+            addCenterButtonImpl(row, atkXY, atkXY ? 'Attacker ' + String(atkXY.x) + ':' + String(atkXY.y) : null);
+            addCenterButtonImpl(row, defXY, defXY ? 'Defender ' + String(defXY.x) + ':' + String(defXY.y) : null);
+          } catch {
+            // ignore
+          }
+
           let reportTxt = '-';
           try {
             reportTxt = typeof reportId === 'string' ? reportId : JSON.stringify(reportId);
@@ -805,6 +1158,18 @@ export function registerNotificationsTabTs(): void {
           const allianceName = an !== null && an !== undefined ? String(an) : '-';
           const outcome = of !== null && of !== undefined ? String(of) : '-';
           void defBaseId;
+
+          // Add Center buttons for attacker and defender bases
+          try {
+            const atkBaseId = Array.isArray(bins[aIdx]) && bins[aIdx].length ? bins[aIdx][0] : null;
+            const defBaseId2 = Array.isArray(bins[dIdx]) && bins[dIdx].length ? bins[dIdx][0] : null;
+            const atkXY = tryResolveBaseIdToXY(atkBaseId);
+            const defXY = tryResolveBaseIdToXY(defBaseId2);
+            addCenterButtonImpl(row, atkXY, atkXY ? 'Attacker ' + String(atkXY.x) + ':' + String(atkXY.y) : null);
+            addCenterButtonImpl(row, defXY, defXY ? 'Defender ' + String(defXY.x) + ':' + String(defXY.y) : null);
+          } catch {
+            // ignore
+          }
 
           const content = makeEl('div');
           (content as HTMLElement).style.cssText = 'display:flex;flex-direction:column;gap:6px;';
@@ -927,7 +1292,7 @@ export function registerNotificationsTabTs(): void {
         showItems.forEach((n: any) => {
           const row = makeEl('div');
           (row as HTMLElement).style.cssText =
-            'position:relative;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:6px;';
+            'position:relative;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.10);border-radius:14px;padding:10px;padding-bottom:44px;display:flex;flex-direction:column;gap:6px;';
 
           const top = makeEl('div');
           (top as HTMLElement).style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;';
@@ -986,16 +1351,49 @@ export function registerNotificationsTabTs(): void {
 
           // Specialized renderers (nice cards)
           const mdbVal = n && n.mdb !== undefined ? Number(n.mdb) : null;
-          const hasTwoPartyReport = renderTwoPartyReportCard(row as HTMLElement, n, params);
-          const hasRaid = !hasTwoPartyReport && renderRaidCard(row as HTMLElement, n, params);
-          const hasTwoPartyNoReport = !hasTwoPartyReport && !hasRaid && renderTwoPartyNoReportCard(row as HTMLElement, n, params);
-          const hasNpcNoReport = !hasTwoPartyReport && !hasRaid && !hasTwoPartyNoReport && renderNpcNoReportCard(row as HTMLElement, n, params);
-          const hasPoi =
-            !hasTwoPartyReport && !hasRaid && !hasTwoPartyNoReport && !hasNpcNoReport && renderPoiEventCard(row as HTMLElement, n, params);
-          const hasCoordOnly =
-            !hasTwoPartyReport && !hasRaid && !hasTwoPartyNoReport && !hasNpcNoReport && !hasPoi && renderCoordOnlyCard(row as HTMLElement, n, params);
+          const hasMember = renderAllianceMemberCard(row as HTMLElement, n, params);
+          const hasInvite = !hasMember && renderInvitationCard(row as HTMLElement, n, params);
+          const hasRel = !hasMember && !hasInvite && renderRelationshipCard(row as HTMLElement, n, params);
+          const hasEndgame = !hasMember && !hasInvite && !hasRel && renderEndgameCard(row as HTMLElement, n, params);
 
-          const hasSpecial = hasTwoPartyReport || hasRaid || hasTwoPartyNoReport || hasNpcNoReport || hasPoi || hasCoordOnly;
+          const hasTwoPartyReport = !hasMember && !hasInvite && !hasRel && !hasEndgame && renderTwoPartyReportCard(row as HTMLElement, n, params);
+          const hasRaid =
+            !hasMember && !hasInvite && !hasRel && !hasEndgame && !hasTwoPartyReport && renderRaidCard(row as HTMLElement, n, params);
+          const hasTwoPartyNoReport =
+            !hasMember && !hasInvite && !hasRel && !hasEndgame && !hasTwoPartyReport && !hasRaid && renderTwoPartyNoReportCard(row as HTMLElement, n, params);
+          const hasNpcNoReport =
+            !hasMember &&
+            !hasInvite &&
+            !hasRel &&
+            !hasEndgame &&
+            !hasTwoPartyReport &&
+            !hasRaid &&
+            !hasTwoPartyNoReport &&
+            renderNpcNoReportCard(row as HTMLElement, n, params);
+          const hasPoi =
+            !hasMember &&
+            !hasInvite &&
+            !hasRel &&
+            !hasEndgame &&
+            !hasTwoPartyReport &&
+            !hasRaid &&
+            !hasTwoPartyNoReport &&
+            !hasNpcNoReport &&
+            renderPoiEventCard(row as HTMLElement, n, params);
+          const hasCoordOnly =
+            !hasMember &&
+            !hasInvite &&
+            !hasRel &&
+            !hasEndgame &&
+            !hasTwoPartyReport &&
+            !hasRaid &&
+            !hasTwoPartyNoReport &&
+            !hasNpcNoReport &&
+            !hasPoi &&
+            renderCoordOnlyCard(row as HTMLElement, n, params);
+
+          const hasSpecial =
+            hasMember || hasInvite || hasRel || hasEndgame || hasTwoPartyReport || hasRaid || hasTwoPartyNoReport || hasNpcNoReport || hasPoi || hasCoordOnly;
 
           if (!hasSpecial) {
             const grid = makeEl('div');
