@@ -127,11 +127,6 @@ function waitForClientLibReady(timeoutMs: number): Promise<boolean> {
         });
       })
       .then(() => {
-        return import('./tabs/announces/registerAnnouncesTab').then((m) => {
-          m.registerAnnouncesTabTs();
-        });
-      })
-      .then(() => {
         return import('./tabs/teams/registerTeamsTab').then((m) => {
           m.registerTeamsTabTs();
         });

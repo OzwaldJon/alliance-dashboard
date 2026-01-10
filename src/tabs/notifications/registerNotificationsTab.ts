@@ -25,7 +25,7 @@ export function registerNotificationsTabTs(): void {
       (head as HTMLElement).style.cssText = 'display:flex;align-items:center;gap:10px;';
 
       const h = makeEl('h3');
-      h.textContent = 'NotificationGetRange explorer';
+      h.textContent = 'Notification browser';
       (h as HTMLElement).style.cssText = 'margin:0;font-size:13px;flex:1;';
 
       const status = makeEl('div');
@@ -1488,93 +1488,142 @@ export function registerNotificationsTabTs(): void {
         }
       }
 
-      function sendFetch(skip: number, take: number, append: boolean): void {
+      function getFilteredVisibleCount(items: any[]): number {
+        try {
+          const arr: any[] = Array.isArray(items) ? items : [];
+          const f = String(selectedEnumFilter || '');
+          if (!f) return arr.length;
+          let c = 0;
+          for (let i = 0; i < arr.length; i++) {
+            try {
+              const n = arr[i];
+              const mdb = n && n.mdb !== undefined ? Number(n.mdb) : null;
+              const enumName = mdb !== null && isFinite(mdb) ? getEnumName(mdb) : null;
+              if (String(enumName || '') === f) c++;
+            } catch {
+              // ignore
+            }
+          }
+          return c;
+        } catch {
+          return 0;
+        }
+      }
+
+      function sendFetch(skip: number, take: number, append: boolean): Promise<{ got: number; addedUnique: number }> {
         setStatus('Loading…');
         pagingLoading = true;
         updateLoadMoreBtn();
 
-        try {
-          const w: any = window as any;
-          const ClientLib = w.ClientLib;
-          const phe = w.phe;
-          const cm = ClientLib && ClientLib.Net && ClientLib.Net.CommunicationManager ? ClientLib.Net.CommunicationManager.GetInstance() : null;
-          const makeDelegate = phe && phe.cnc && phe.cnc.Util && typeof phe.cnc.Util.createEventDelegate === 'function' ? phe.cnc.Util.createEventDelegate : null;
+        return new Promise((resolve, reject) => {
+          try {
+            const w: any = window as any;
+            const ClientLib = w.ClientLib;
+            const phe = w.phe;
+            const cm = ClientLib && ClientLib.Net && ClientLib.Net.CommunicationManager ? ClientLib.Net.CommunicationManager.GetInstance() : null;
+            const makeDelegate =
+              phe && phe.cnc && phe.cnc.Util && typeof phe.cnc.Util.createEventDelegate === 'function' ? phe.cnc.Util.createEventDelegate : null;
 
-          if (!ClientLib || !cm || !makeDelegate) {
+            if (!ClientLib || !cm || !makeDelegate) {
+              setStatus('Error');
+              pagingLoading = false;
+              updateLoadMoreBtn();
+              setOutput({ error: 'Game API not available' });
+              reject(new Error('Game API not available'));
+              return;
+            }
+
+            const payload = {
+              category: 0,
+              skip,
+              take,
+              sortOrder: 1,
+              ascending: false
+            };
+
+            const onResult = (_ctx: any, data: any) => {
+              let arr: any[] = [];
+              try {
+                arr = normalizeItems(data);
+              } catch {
+                arr = [];
+              }
+
+              const beforeLen = Array.isArray(pagingAllItems) ? pagingAllItems.length : 0;
+
+              try {
+                if (append) pagingAllItems = mergeItems(pagingAllItems, arr);
+                else {
+                  resetPaging();
+                  pagingAllItems = mergeItems([], arr);
+                }
+              } catch {
+                // ignore
+              }
+
+              const afterLen = Array.isArray(pagingAllItems) ? pagingAllItems.length : beforeLen;
+
+              let got = 0;
+              try {
+                got = Array.isArray(arr) ? arr.length : 0;
+                pagingNextSkip = skip + got;
+                pagingHasMore = got >= take;
+              } catch {
+                pagingHasMore = false;
+              }
+
+              try {
+                setStatus('OK • items: ' + String(pagingAllItems.length));
+                setOutputItemsOnly(pagingAllItems);
+              } catch {
+                setStatus('OK');
+              }
+
+              pagingLoading = false;
+              updateLoadMoreBtn();
+              resolve({ got, addedUnique: Math.max(0, afterLen - beforeLen) });
+            };
+
+            cm.SendSimpleCommand('NotificationGetRange', payload, makeDelegate(ClientLib.Net.CommandResult, ctx, onResult), null);
+          } catch (e) {
             setStatus('Error');
             pagingLoading = false;
             updateLoadMoreBtn();
-            setOutput({ error: 'Game API not available' });
-            return;
+            setOutput({ error: 'Failed to fetch' });
+            reject(e);
           }
-
-          const payload = {
-            category: 0,
-            skip,
-            take,
-            sortOrder: 1,
-            ascending: false
-          };
-
-          const onResult = (_ctx: any, data: any) => {
-            let arr: any[] = [];
-            try {
-              arr = normalizeItems(data);
-            } catch {
-              arr = [];
-            }
-
-            try {
-              if (append) pagingAllItems = mergeItems(pagingAllItems, arr);
-              else {
-                resetPaging();
-                pagingAllItems = mergeItems([], arr);
-              }
-            } catch {
-              // ignore
-            }
-
-            try {
-              const got = Array.isArray(arr) ? arr.length : 0;
-              pagingNextSkip = skip + got;
-              pagingHasMore = got >= take;
-            } catch {
-              pagingHasMore = false;
-            }
-
-            try {
-              setStatus('OK • items: ' + String(pagingAllItems.length));
-              setOutputItemsOnly(pagingAllItems);
-            } catch {
-              setStatus('OK');
-            }
-
-            pagingLoading = false;
-            updateLoadMoreBtn();
-          };
-
-          cm.SendSimpleCommand('NotificationGetRange', payload, makeDelegate(ClientLib.Net.CommandResult, ctx, onResult), null);
-        } catch {
-          setStatus('Error');
-          pagingLoading = false;
-          updateLoadMoreBtn();
-          setOutput({ error: 'Failed to fetch' });
-        }
+        });
       }
 
       function fetchFirstPage(): void {
         resetPaging();
-        sendFetch(pagingNextSkip, pagingPageSize, false);
+        void sendFetch(pagingNextSkip, pagingPageSize, false);
       }
 
       function fetchNextPage(): void {
         if (pagingLoading || !pagingHasMore) return;
-        sendFetch(pagingNextSkip, pagingPageSize, true);
+        void sendFetch(pagingNextSkip, pagingPageSize, true);
+      }
+
+      async function fetchNextPageUntilFound(): Promise<void> {
+        if (pagingLoading || !pagingHasMore) return;
+
+        const beforeVisible = getFilteredVisibleCount(pagingAllItems);
+        let guard = 0;
+        while (!pagingLoading && pagingHasMore) {
+          guard++;
+          if (guard > 50) break;
+          const res = await sendFetch(pagingNextSkip, pagingPageSize, true);
+          const afterVisible = getFilteredVisibleCount(pagingAllItems);
+          if (afterVisible > beforeVisible) break;
+          if (!pagingHasMore) break;
+          if (!res || res.got <= 0) break;
+        }
       }
 
       loadMoreBtn.addEventListener('click', () => {
         try {
-          fetchNextPage();
+          void fetchNextPageUntilFound();
         } catch {
           // ignore
         }

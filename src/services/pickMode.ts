@@ -24,6 +24,10 @@ type PickCtx = PickCtxBaseMove | PickCtxTeamObjective;
 let pickHookInstalled = false;
 let pickCtx: PickCtx | null = null;
 let pickBannerEl: HTMLElement | null = null;
+let pickHoverOverlayEl: HTMLElement | null = null;
+let pickHover: { x: number; y: number } | null = null;
+let pickHoverRaf: number | null = null;
+let pickDomMoveInstalled = false;
 
 function getClientLib(): any {
   try {
@@ -69,6 +73,157 @@ function setPickBannerVisible(visible: boolean): void {
   }
 }
 
+function ensurePickHoverOverlay(): HTMLElement | null {
+  try {
+    if (pickHoverOverlayEl && pickHoverOverlayEl.parentNode) return pickHoverOverlayEl;
+
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+    const parent = canvas && canvas.parentElement ? canvas.parentElement : null;
+    if (!parent) return null;
+
+    const el = document.createElement('div');
+    el.id = 'cad-pick-hover';
+    el.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:11;';
+    parent.appendChild(el);
+    pickHoverOverlayEl = el;
+    return el;
+  } catch {
+    return null;
+  }
+}
+
+function clearPickHoverOverlay(): void {
+  try {
+    if (pickHoverOverlayEl) pickHoverOverlayEl.innerHTML = '';
+  } catch {
+    // ignore
+  }
+}
+
+function schedulePickHoverRender(): void {
+  try {
+    if (pickHoverRaf !== null) return;
+    pickHoverRaf = window.requestAnimationFrame(() => {
+      pickHoverRaf = null;
+      renderPickHoverOverlay();
+    });
+  } catch {
+    // ignore
+  }
+}
+
+function updatePickHover(x: number, y: number): void {
+  try {
+    if (!isFinite(x) || !isFinite(y)) return;
+    const xx = Math.floor(Number(x));
+    const yy = Math.floor(Number(y));
+    if (!isFinite(xx) || !isFinite(yy)) return;
+    if (pickHover && pickHover.x === xx && pickHover.y === yy) return;
+    pickHover = { x: xx, y: yy };
+    schedulePickHoverRender();
+  } catch {
+    // ignore
+  }
+}
+
+function renderPickHoverOverlay(): void {
+  try {
+    const ctx = getAppContext();
+    const s: any = ctx.store.getState();
+    if (!s?.ui?.pickActive || !pickCtx || !pickHover) {
+      clearPickHoverOverlay();
+      return;
+    }
+
+    const api = getGameApi({ refresh: true });
+    const ClientLib = api.ClientLib;
+    const visMain = api.visMain;
+    const region = api.region || (visMain && visMain.get_Region ? visMain.get_Region() : null);
+    if (!ClientLib || !visMain || !region) {
+      clearPickHoverOverlay();
+      return;
+    }
+
+    if (ClientLib.Vis && ClientLib.Vis.Mode && typeof visMain.get_Mode === 'function') {
+      if (visMain.get_Mode() !== ClientLib.Vis.Mode.Region) {
+        clearPickHoverOverlay();
+        return;
+      }
+    }
+
+    if (typeof (visMain as any).ScreenPosFromWorldPosX !== 'function' || typeof (visMain as any).ScreenPosFromWorldPosY !== 'function') {
+      clearPickHoverOverlay();
+      return;
+    }
+
+    const gw = region && region.get_GridWidth ? Number(region.get_GridWidth()) : NaN;
+    const gh = region && region.get_GridHeight ? Number(region.get_GridHeight()) : NaN;
+    const vw = region && region.get_ViewWidth ? Number(region.get_ViewWidth()) : NaN;
+    const vh = region && region.get_ViewHeight ? Number(region.get_ViewHeight()) : NaN;
+    if (![gw, gh, vw, vh].every((n) => isFinite(n)) || gw <= 0 || gh <= 0) {
+      clearPickHoverOverlay();
+      return;
+    }
+
+    const root = ensurePickHoverOverlay();
+    if (!root) return;
+    root.innerHTML = '';
+
+    const x = pickHover.x;
+    const y = pickHover.y;
+    const cx = (visMain as any).ScreenPosFromWorldPosX((x + 0.5) * gw);
+    const cy = (visMain as any).ScreenPosFromWorldPosY((y + 0.5) * gh);
+    if (!isFinite(cx) || !isFinite(cy)) return;
+    if (cx < -60 || cy < -60 || cx > vw + 60 || cy > vh + 60) return;
+
+    const size = 34;
+
+    const box = document.createElement('div');
+    box.id = 'cad-pick-hover-box';
+    box.style.cssText =
+      'position:absolute;left:' +
+      String(Math.round(cx - size / 2)) +
+      'px;top:' +
+      String(Math.round(cy - size / 2)) +
+      'px;width:' +
+      String(size) +
+      'px;height:' +
+      String(size) +
+      'px;border-radius:10px;' +
+      'background:rgba(0,0,0,.15);' +
+      'box-shadow:inset 0 0 0 2px rgba(44,255,116,.95), 0 10px 26px rgba(0,0,0,.55);';
+
+    const cross = document.createElement('div');
+    cross.style.cssText =
+      'position:absolute;left:50%;top:50%;width:2px;height:18px;transform:translate(-50%,-50%);background:rgba(44,255,116,.95);' +
+      'box-shadow:0 0 0 1px rgba(0,0,0,.55);';
+
+    const cross2 = document.createElement('div');
+    cross2.style.cssText =
+      'position:absolute;left:50%;top:50%;width:18px;height:2px;transform:translate(-50%,-50%);background:rgba(44,255,116,.95);' +
+      'box-shadow:0 0 0 1px rgba(0,0,0,.55);';
+
+    box.appendChild(cross);
+    box.appendChild(cross2);
+    root.appendChild(box);
+
+    try {
+      setPickBannerText(
+        (pickCtx.kind === 'teamObjective' ? 'CLICK OBJECTIVE POSITION' : 'CLICK THE NEW BASE POSITION') +
+          ' — hover: ' +
+          x +
+          ':' +
+          y +
+          ' — press ESC to cancel'
+      );
+    } catch {
+      // ignore
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function setPickActive(active: boolean): void {
   try {
     const ctx = getAppContext();
@@ -99,8 +254,10 @@ export function stopPickMode(opts?: StopPickOptions): void {
     const logIndex = pickCtx && (pickCtx as any).logIndex !== undefined ? Number((pickCtx as any).logIndex) : -1;
 
     pickCtx = null;
+    pickHover = null;
     setPickActive(false);
     setPickBannerVisible(false);
+    clearPickHoverOverlay();
 
     if (options.removePendingLog && logIndex >= 0) {
       try {
@@ -242,6 +399,31 @@ export function ensurePickHook(): void {
 
     if (!attach) return;
 
+    try {
+      attach(mouseTool, 'OnMouseMove', ClientLib.Vis.MouseTool.OnMouseMove, null, (visX: any, visY: any) => {
+        try {
+          const ctx = getAppContext();
+          const s: any = ctx.store.getState();
+          if (!s?.ui?.pickActive || !pickCtx) return;
+
+          const region = visMain.get_Region?.();
+          const gw = region && region.get_GridWidth ? Number(region.get_GridWidth()) : null;
+          const gh = region && region.get_GridHeight ? Number(region.get_GridHeight()) : null;
+          const xFromPixels = gw && isFinite(gw) && gw > 0 ? Math.floor(Number(visX) / gw) : null;
+          const yFromPixels = gh && isFinite(gh) && gh > 0 ? Math.floor(Number(visY) / gh) : null;
+          const xFromGrid = Math.floor(Number(visX));
+          const yFromGrid = Math.floor(Number(visY));
+          const x = xFromPixels !== null && isFinite(xFromPixels) ? xFromPixels : xFromGrid;
+          const y = yFromPixels !== null && isFinite(yFromPixels) ? yFromPixels : yFromGrid;
+          updatePickHover(x, y);
+        } catch {
+          // ignore
+        }
+      });
+    } catch {
+      // ignore
+    }
+
     attach(mouseTool, 'OnMouseUp', ClientLib.Vis.MouseTool.OnMouseUp, null, (visX: any, visY: any, mouseButton: any) => {
       try {
         const ctx = getAppContext();
@@ -259,6 +441,12 @@ export function ensurePickHook(): void {
         const yFromGrid = Math.floor(Number(visY));
         const x = xFromPixels !== null && isFinite(xFromPixels) ? xFromPixels : xFromGrid;
         const y = yFromPixels !== null && isFinite(yFromPixels) ? yFromPixels : yFromGrid;
+
+        try {
+          updatePickHover(x, y);
+        } catch {
+          // ignore
+        }
 
         if (!pickCtx) {
           stopPickMode({ restoreUi: true, removePendingLog: true });
@@ -336,6 +524,46 @@ export function ensurePickHook(): void {
         // ignore
       }
     });
+  } catch {
+    // ignore
+  }
+
+  // Fallback: DOM mousemove over canvas parent (in case OnMouseMove hook fails)
+  try {
+    if (pickDomMoveInstalled) return;
+    pickDomMoveInstalled = true;
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+    const parent = canvas && canvas.parentElement ? canvas.parentElement : null;
+    if (!parent) return;
+
+    parent.addEventListener(
+      'mousemove',
+      () => {
+        try {
+          const ctx = getAppContext();
+          const s: any = ctx.store.getState();
+          if (!s?.ui?.pickActive || !pickCtx) return;
+
+          const api = getGameApi({ refresh: true });
+          const visMain = api.visMain;
+          const region = api.region || (visMain && visMain.get_Region ? visMain.get_Region() : null);
+          if (!visMain || !region) return;
+
+          const mx = typeof (visMain as any).get_MousePosX === 'function' ? Number((visMain as any).get_MousePosX()) : NaN;
+          const my = typeof (visMain as any).get_MousePosY === 'function' ? Number((visMain as any).get_MousePosY()) : NaN;
+          const gw = region && region.get_GridWidth ? Number(region.get_GridWidth()) : NaN;
+          const gh = region && region.get_GridHeight ? Number(region.get_GridHeight()) : NaN;
+          if (![mx, my, gw, gh].every((n) => isFinite(n)) || gw <= 0 || gh <= 0) return;
+
+          const x = Math.floor(mx / gw);
+          const y = Math.floor(my / gh);
+          updatePickHover(x, y);
+        } catch {
+          // ignore
+        }
+      },
+      true
+    );
   } catch {
     // ignore
   }
