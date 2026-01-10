@@ -142,6 +142,11 @@ function waitForClientLibReady(timeoutMs: number): Promise<boolean> {
         });
       })
       .then(() => {
+        return import('./tabs/sync/registerSyncTab').then((m) => {
+          m.registerSyncTabTs();
+        });
+      })
+      .then(() => {
         return import('./tabs/poi/registerPoiTab').then((m) => {
           m.registerPoiTabTs();
         });
