@@ -1,6 +1,53 @@
 import { loadTeams, saveTeams } from '../tabs/teams/model';
 import { getObjectiveMetaFromVisObject, normalizeToTileCoord, type ObjectiveMeta } from './poiMeta';
 
+function removeObjectiveFromAllTeams(x: number, y: number): boolean {
+  try {
+    const xx = Number(x);
+    const yy = Number(y);
+    if (!isFinite(xx) || !isFinite(yy)) return false;
+
+    const teams = loadTeams();
+    let changed = false;
+
+    for (let ti = 0; ti < teams.length; ti++) {
+      const t: any = teams[ti];
+      const objs: any[] = t && Array.isArray(t.objectives) ? t.objectives : [];
+      if (!objs.length) continue;
+      const next = objs.filter((o) => !(Number(o?.x) === Math.floor(xx) && Number(o?.y) === Math.floor(yy)));
+      if (next.length !== objs.length) {
+        teams[ti] = { ...(t || {}), objectives: next };
+        changed = true;
+      }
+    }
+
+    if (changed) saveTeams(teams);
+    return changed;
+  } catch {
+    return false;
+  }
+}
+
+function hasObjectiveAt(x: number, y: number): boolean {
+  try {
+    const xx = Math.floor(Number(x));
+    const yy = Math.floor(Number(y));
+    if (!isFinite(xx) || !isFinite(yy)) return false;
+    const teams = loadTeams();
+    for (let ti = 0; ti < teams.length; ti++) {
+      const t: any = teams[ti];
+      const objs: any[] = t && Array.isArray(t.objectives) ? t.objectives : [];
+      for (let oi = 0; oi < objs.length; oi++) {
+        const o: any = objs[oi];
+        if (Number(o?.x) === xx && Number(o?.y) === yy) return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 function addObjectiveToTeam(
   teamId: string,
   x: number,
@@ -91,13 +138,21 @@ function createTeamMenuButton(
       }
     };
 
+    const wrap = new qxAny.ui.container.Composite(new qxAny.ui.layout.HBox(6));
+
     const menu = new qxAny.ui.menu.Menu().set({ position: 'right-top' });
-    const btn = new qxAny.ui.form.MenuButton().set({ appearance: 'button', menu });
-    btn.set({ label: 'Add objective \u00BB', paddingLeft: -1, paddingRight: -1 });
+    const addBtn = new qxAny.ui.form.MenuButton().set({ appearance: 'button', menu });
+    addBtn.set({ label: 'Add objective \u00BB', paddingLeft: -1, paddingRight: -1 });
+
+    const removeBtn = new qxAny.ui.form.Button('Remove objective');
+    removeBtn.setVisibility('excluded');
+
+    wrap.add(addBtn);
+    wrap.add(removeBtn);
 
     try {
       if (isMenuButtonBroken()) {
-        btn.addListener('pointerdown', (btn as any).open, btn);
+        addBtn.addListener('pointerdown', (addBtn as any).open, addBtn);
       }
     } catch {
       // ignore
@@ -138,21 +193,50 @@ function createTeamMenuButton(
       });
     };
 
-    btn.addListener('execute', () => {
+    addBtn.addListener('execute', () => {
       try {
         rebuild();
       } catch {
         // ignore
       }
       try {
-        if (typeof (btn as any).open === 'function') {
-          (btn as any).open();
+        if (typeof (addBtn as any).open === 'function') {
+          (addBtn as any).open();
         }
       } catch {
         // ignore
       }
     });
-    return btn;
+
+    removeBtn.addListener('execute', () => {
+      try {
+        const base = getSelectedBase();
+        const xy = tryGetSelectedXY(base);
+        if (!xy) {
+          window.alert('Could not read coordinates for this selection.');
+          return;
+        }
+        removeObjectiveFromAllTeams(xy.x, xy.y);
+      } catch {
+        // ignore
+      }
+    });
+
+    (wrap as any).__ad_setObjectiveMode = (mode: 'add' | 'remove') => {
+      try {
+        if (mode === 'remove') {
+          addBtn.setVisibility('excluded');
+          removeBtn.setVisibility('visible');
+        } else {
+          removeBtn.setVisibility('excluded');
+          addBtn.setVisibility('visible');
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    return wrap;
   } catch {
     // Fallback: plain button (no prompt; user wants in-menu selection).
     const btn = new w.qx.ui.form.Button('Add objective');
@@ -295,6 +379,8 @@ export function ensureCityMenuObjectivesHook(): void {
               }
 
               let enable = false;
+              let exists = false;
+              let xy: { x: number; y: number } | null = null;
               try {
                 const ClientLib: any = (window as any).ClientLib;
                 const t = selectedObj?.get_VisObjectType?.();
@@ -316,8 +402,28 @@ export function ensureCityMenuObjectivesHook(): void {
               }
 
               try {
+                xy = tryGetSelectedXY(selectedObj);
+                if (xy) exists = hasObjectiveAt(xy.x, xy.y);
+              } catch {
+                // ignore
+              }
+
+              try {
                 const links: any[] = Array.isArray((this as any).__ad_objective_links) ? (this as any).__ad_objective_links : [];
-                for (let i = 0; i < links.length; i++) links[i].setEnabled(enable);
+                for (let i = 0; i < links.length; i++) {
+                  try {
+                    links[i].setEnabled(enable);
+                  } catch {
+                    // ignore
+                  }
+                  try {
+                    if (typeof links[i].__ad_setObjectiveMode === 'function') {
+                      links[i].__ad_setObjectiveMode(exists ? 'remove' : 'add');
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }
               } catch {
                 // ignore
               }
