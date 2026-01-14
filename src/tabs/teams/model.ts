@@ -8,6 +8,8 @@ export type TeamObjective = {
   y: number;
   poiLevel: number | null;
   poiTypeId: number | null;
+  objectiveKind?: string;
+  objectiveLevel?: number | null;
 };
 
 export type Team = {
@@ -45,12 +47,34 @@ function normalizeObjective(obj: any): TeamObjective | null {
   const poiLevel = poiLevelRaw === undefined || poiLevelRaw === null ? null : toFiniteNumber(poiLevelRaw, NaN);
   const poiTypeId = poiTypeIdRaw === undefined || poiTypeIdRaw === null ? null : toFiniteNumber(poiTypeIdRaw, NaN);
 
+  let objectiveKind: string | undefined = undefined;
+  let objectiveLevel: number | null | undefined = undefined;
+  try {
+    const k = normalizeId((obj as any).objectiveKind);
+    if (k) objectiveKind = k;
+  } catch {
+    // ignore
+  }
+  try {
+    const lvRaw = (obj as any).objectiveLevel;
+    if (lvRaw === undefined || lvRaw === null) {
+      objectiveLevel = lvRaw;
+    } else {
+      const lv = toFiniteNumber(lvRaw, NaN);
+      objectiveLevel = Number.isFinite(lv) ? lv : null;
+    }
+  } catch {
+    // ignore
+  }
+
   return {
     id,
     x,
     y,
     poiLevel: poiLevel !== null && Number.isFinite(poiLevel) ? poiLevel : null,
-    poiTypeId: poiTypeId !== null && Number.isFinite(poiTypeId) ? poiTypeId : null
+    poiTypeId: poiTypeId !== null && Number.isFinite(poiTypeId) ? poiTypeId : null,
+    objectiveKind,
+    objectiveLevel
   };
 }
 

@@ -3,6 +3,8 @@ import { formatNumber } from '../../services/format';
 import { centerMapTo } from '../../services/map';
 import { ensurePickHook, startTeamObjectivePick } from '../../services/pickMode';
 import { addChatLog } from '../../services/chatLogs';
+import { formatObjectiveLabel } from '../../services/poiMeta';
+import { makeTabIcon } from '../../app/icons';
 import {
   addTeam,
   clearAssignments,
@@ -234,41 +236,36 @@ export function registerTeamsTabTs(): void {
             const objs = t.objectives || [];
             objs.forEach((o, oi) => {
               const pill = makeEl('button', { class: 'cad-btn', type: 'button' }) as HTMLButtonElement;
-              const POI_TYPE_NAME_BY_ID: Record<number, string> = {
-                1: 'Tiberium',
-                2: 'Crystal',
-                3: 'Reactor',
-                4: 'Tungsten',
-                5: 'Uranium',
-                6: 'Aircraft',
-                7: 'Resonator'
-              };
-              const POI_TYPE_COLOR_BY_ID: Record<number, string> = {
-                1: '#3CE685',
-                2: '#44DBF4',
-                3: '#84DCE3',
-                4: '#CC6F66',
-                5: '#B0ADF6',
-                6: '#BDD7E5',
-                7: '#F5A6C7'
-              };
 
               const baseTxt = o.x + ':' + o.y;
-              let poiTxt = '';
-              let poiColor: string | null = null;
+              const fmt = formatObjectiveLabel({
+                poiLevel: o.poiLevel !== undefined ? (o.poiLevel as any) : null,
+                poiTypeId: o.poiTypeId !== undefined ? (o.poiTypeId as any) : null,
+                objectiveKind: (o as any).objectiveKind,
+                objectiveLevel: (o as any).objectiveLevel
+              });
+              const labelTxt = baseTxt + fmt.text;
+              const poiColor: string | null = fmt.color;
+
+              (pill as HTMLElement).innerHTML = '';
               try {
-                const lvl = o.poiLevel !== undefined && o.poiLevel !== null && isFinite(Number(o.poiLevel)) ? Number(o.poiLevel) : null;
-                const tid = o.poiTypeId !== undefined && o.poiTypeId !== null && isFinite(Number(o.poiTypeId)) ? Number(o.poiTypeId) : null;
-                if (lvl !== null && tid !== null) {
-                  const nm = POI_TYPE_NAME_BY_ID[tid] ? String(POI_TYPE_NAME_BY_ID[tid]) : 'TypeId ' + String(tid);
-                  poiTxt = ' [' + nm + ' ' + String(lvl) + ']';
-                  poiColor = POI_TYPE_COLOR_BY_ID[tid] ? String(POI_TYPE_COLOR_BY_ID[tid]) : null;
+                (pill as HTMLElement).style.display = 'inline-flex';
+                (pill as HTMLElement).style.alignItems = 'center';
+                (pill as HTMLElement).style.gap = '6px';
+              } catch {
+                // ignore
+              }
+              try {
+                if (fmt.icon) {
+                  const ico = makeTabIcon(fmt.icon, 16);
+                  if (ico) pill.appendChild(ico);
                 }
               } catch {
                 // ignore
               }
-
-              pill.textContent = baseTxt + poiTxt;
+              const tspan = makeEl('span');
+              tspan.textContent = labelTxt;
+              pill.appendChild(tspan);
               pill.style.cssText = 'border:1px solid var(--cad-accent-20);background:var(--cad-accent-08);';
               try {
                 if (poiColor) {

@@ -1,6 +1,8 @@
 import { getAppContext } from '../app/global';
-import { loadTeams, saveTeams } from '../tabs/teams/model';
 import { getGameApi } from './gameApi';
+import { addChatLog } from './chatLogs';
+import { loadTeams, saveTeams } from '../tabs/teams/model';
+import { getObjectiveMetaFromVisObject } from './poiMeta';
 
 export type StopPickOptions = { restoreUi?: boolean; removePendingLog?: boolean; switchToChat?: boolean };
 
@@ -463,36 +465,17 @@ export function ensurePickHook(): void {
                 const t = teams[idx];
                 const objs = t && Array.isArray((t as any).objectives) ? (t as any).objectives.slice() : [];
 
-                let poiLevel: number | null = null;
-                let poiTypeId: number | null = null;
-                try {
-                  const vobj = region && region.GetObjectFromPosition ? region.GetObjectFromPosition(visX, visY) : null;
-                  if (vobj && vobj.get_VisObjectType && ClientLib.Vis && ClientLib.Vis.VisObject && ClientLib.Vis.VisObject.EObjectType) {
-                    const vt = vobj.get_VisObjectType();
-                    const poiVt = ClientLib.Vis.VisObject.EObjectType.RegionPointOfInterest;
-                    if (vt === poiVt || String(vt) === String(poiVt)) {
-                      try {
-                        if (vobj.get_Level && isFinite(Number(vobj.get_Level()))) poiLevel = Number(vobj.get_Level());
-                      } catch {
-                        // ignore
-                      }
-                      try {
-                        if (vobj.get_Type && isFinite(Number(vobj.get_Type()))) poiTypeId = Number(vobj.get_Type());
-                      } catch {
-                        // ignore
-                      }
-                    }
-                  }
-                } catch {
-                  // ignore
-                }
+                const vobj = region && region.GetObjectFromPosition ? region.GetObjectFromPosition(visX, visY) : null;
+                const meta = getObjectiveMetaFromVisObject(vobj, { x, y });
 
                 objs.push({
                   id: String(Date.now()) + '_' + Math.random().toString(16).slice(2),
                   x,
                   y,
-                  poiLevel,
-                  poiTypeId
+                  poiLevel: meta.poiLevel,
+                  poiTypeId: meta.poiTypeId,
+                  objectiveKind: meta.objectiveKind,
+                  objectiveLevel: meta.objectiveLevel
                 });
 
                 teams[idx] = { ...(t as any), objectives: objs };

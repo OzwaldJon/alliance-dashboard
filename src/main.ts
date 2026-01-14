@@ -3,6 +3,7 @@ import { getClientLib } from './env/game';
 import { createAppContext, mountUi } from './app/uiShell';
 import { installAppContext } from './app/global';
 import { refreshPlayersTs } from './services/refreshPlayers';
+import { ensureCityMenuObjectivesHook } from './services/cityMenuObjectives';
 import { computePlayerKey } from './app/storage';
 
 function isClientLibReadyForDashboard(): boolean {
@@ -84,6 +85,12 @@ function waitForClientLibReady(timeoutMs: number): Promise<boolean> {
         }
       }
     });
+
+    try {
+      ensureCityMenuObjectivesHook();
+    } catch {
+      // ignore
+    }
 
     let endgameRegistered = false;
     const maybeRegisterEndgame = (): void => {
